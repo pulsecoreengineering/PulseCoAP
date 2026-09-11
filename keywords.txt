@@ -1,0 +1,67 @@
+#######################################
+# Syntax Coloring Map For PulseCoAP
+#######################################
+
+#######################################
+# Datatypes (KEYWORD1)
+#######################################
+
+Message	KEYWORD1
+Option	KEYWORD1
+MessageType	KEYWORD1
+Code	KEYWORD1
+OptionNumber	KEYWORD1
+ContentFormat	KEYWORD1
+DecodeError	KEYWORD1
+Endpoint	KEYWORD1
+Transport	KEYWORD1
+ArduinoUdpTransport	KEYWORD1
+TransactionPool	KEYWORD1
+Transaction	KEYWORD1
+TransactionState	KEYWORD1
+Server	KEYWORD1
+Client	KEYWORD1
+Request	KEYWORD1
+Response	KEYWORD1
+ClientResponse	KEYWORD1
+ResourceHandler	KEYWORD1
+ResponseHandler	KEYWORD1
+TimeoutHandler	KEYWORD1
+
+#######################################
+# Methods and Functions (KEYWORD2)
+#######################################
+
+begin	KEYWORD2
+addResource	KEYWORD2
+addOption	KEYWORD2
+addOptionString	KEYWORD2
+addOptionUint	KEYWORD2
+setToken	KEYWORD2
+setPayload	KEYWORD2
+setType	KEYWORD2
+setCode	KEYWORD2
+setMessageId	KEYWORD2
+encode	KEYWORD2
+decode	KEYWORD2
+poll	KEYWORD2
+notify	KEYWORD2
+observe	KEYWORD2
+cancelObserve	KEYWORD2
+get	KEYWORD2
+put	KEYWORD2
+post	KEYWORD2
+del	KEYWORD2
+setTimeoutHandler	KEYWORD2
+findOption	KEYWORD2
+optionAt	KEYWORD2
+optionAsUint	KEYWORD2
+
+#######################################
+# Constants (LITERAL1)
+#######################################
+
+MethodGet	LITERAL1
+MethodPost	LITERAL1
+MethodPut	LITERAL1
+MethodDelete	LITERAL1

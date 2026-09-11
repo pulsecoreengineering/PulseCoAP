@@ -1,0 +1,25 @@
+{
+  "name": "PulseCoAP",
+  "version": "0.9.0",
+  "description": "No-heap CoAP (RFC 7252) client and server for constrained IoT devices. Fixed-buffer, zero-dynamic-allocation, with Observe (RFC 7641) push notifications, block-wise transfer (RFC 7959), resource discovery (RFC 6690), URI templates, separate responses, and IPv6. Part of the Pulse embedded library ecosystem.",
+  "keywords": ["coap", "iot", "networking", "esp32", "udp", "observe", "blockwise", "rfc7252", "rfc7641", "rfc7959", "no-heap", "embedded"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pulsecoreengineering/PulseCoAP.git"
+  },
+  "authors": [
+    {
+      "name": "Alex Gabriel",
+      "email": "alexgabrielmalisa@gmail.com",
+      "url": "https://logicfrenzy.com",
+      "maintainer": true
+    }
+  ],
+  "license": "MIT",
+  "frameworks": ["arduino"],
+  "platforms": ["espressif32", "espressif8266", "atmelavr"],
+  "headers": "PulseCoAP.h",
+  "export": {
+    "include": ["src", "examples", "library.properties", "library.json", "README.md", "API.md", "LICENSE", "keywords.txt"]
+  }
+}

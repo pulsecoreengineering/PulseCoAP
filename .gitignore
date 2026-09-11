@@ -1,0 +1,10 @@
+.pio/
+.pioenvs/
+.piolibdeps/
+.vscode/
+build/
+*.o
+*.a
+*.out
+/test/pulsecoap_*
+.DS_Store
