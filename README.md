@@ -80,16 +80,6 @@ socket, with no changes to the protocol layer.
     server-side DTLS cookies for anti-amplification. Enable with
     `PULSECOAP_ENABLE_DTLS=1`; no custom sdkconfig or extra libraries needed.
 
-- **HTTP ↔ CoAP Gateway** (RFC 8075 style, POSIX-only). `PulseCoAPGateway`
-  bridges a web application (HTTP/1.1 over TCP) to CoAP devices (UDP).
-  A static device registry maps path prefixes to `Endpoint`s (longest match
-  wins). Regular requests forward GET/PUT/POST/DELETE to the matching device
-  and return the CoAP response as an HTTP response. `Accept: text/event-stream`
-  requests become CoAP Observe subscriptions streamed as Server-Sent Events.
-  Built-in CORS support (`Access-Control-Allow-Origin: *`) and OPTIONS
-  preflight handling. Can also run headless via `handleHttpRequest()` as a
-  manual adapter for an existing HTTP server (mongoose, libmicrohttpd, etc.).
-
 - **IPv6.** `Endpoint` carries both `ip[4]` and `v6[16]` with an `isV6` flag.
   Existing code that uses `ep.ip[]` compiles and runs unchanged.
 
@@ -222,7 +212,7 @@ a host `g++`/`clang++`:
 cd test && bash run_tests.sh
 ```
 
-**440 checks across 9 suites** (as of v1.2.0; DTLS is tested via Arduino examples — mbedTLS is not available on the host):
+**375 checks across 8 suites** (as of v1.2.0; DTLS is tested via Arduino examples — mbedTLS is not available on the host):
 
 | Suite | Checks | What it covers |
 |-------|--------|----------------|
@@ -234,7 +224,6 @@ cd test && bash run_tests.sh
 | `test_multi_observe` | 35 | Multiple simultaneous observes, independent cancel |
 | `test_posix_transport` | 33* | Real OS loopback sockets, GET, Observe, IPv6 |
 | `test_multicast_discover` | 41† | Discover slot management, expiry, handler dispatch, loopback integration |
-| `test_gateway` | 65 | HTTP↔CoAP proxy, device registry, SSE, OPTIONS preflight, PUT forwarding |
 
 *IPv6 socket tests skip gracefully when the host kernel has no IPv6.  
 †Loopback-multicast integration test skips gracefully when `IP_ADD_MEMBERSHIP` is unavailable.
