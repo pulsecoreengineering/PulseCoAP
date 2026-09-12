@@ -1,7 +1,7 @@
 # PulseCoAP API Reference
 
-**Version:** 1.0.0  
-**Standard:** RFC 7252 (CoAP), RFC 7641 (Observe), RFC 7959 (Block-wise), RFC 6690 (CoRE Link Format), RFC 6347 (DTLS), RFC 7252 §9 (CoAPs)
+**Version:** 1.1.0  
+**Standard:** RFC 7252 (CoAP), RFC 7641 (Observe), RFC 7959 (Block-wise), RFC 6690 (CoRE Link Format), RFC 6347 (DTLS), RFC 7252 §9 (CoAPs), RFC 7252 §8 (Multicast Discovery)
 
 ---
 
@@ -29,6 +29,7 @@
    - [ClientResponse](#clientresponse)
    - [ResponseHandler](#responsehandler)
    - [TimeoutHandler](#timeouthandler)
+   - [DiscoverHandler](#discoverhandler)
    - [Client class](#client-class)
 8. [Code Enum Reference](#8-code-enum-reference)
 9. [ContentFormat Enum Reference](#9-contentformat-enum-reference)
@@ -1072,6 +1073,27 @@ Optional. Installed via `client.setTimeoutHandler(fn)`. Called when a CON reques
 
 ---
 
+### DiscoverHandler
+
+```cpp
+using DiscoverHandler = void (*)(const Endpoint& server,
+                                  const uint8_t* linkFormat, size_t length,
+                                  void* userContext);
+```
+
+Fires once per responding server during a `discover()` collection window.
+
+| Parameter | Description |
+|-----------|-------------|
+| `server` | Unicast endpoint (IP + port) of the responding server |
+| `linkFormat` | Raw CoRE Link Format body (RFC 6690, Content-Format 40) from the server's `/.well-known/core` response; valid only during the callback |
+| `length` | Byte length of `linkFormat` |
+| `userContext` | The pointer that was passed to `discover()` |
+
+**Note:** `linkFormat` points into an internal buffer that is immediately reused after the callback returns. Copy the data if you need it to outlive the call.
+
+---
+
 ### Client Class
 
 ```cpp
@@ -1123,6 +1145,26 @@ public:
     // is active. Two simultaneous observes on the same server at different paths
     // are cancelled independently.
     bool cancelObserve(const Endpoint& server, const char* path);
+
+    // ---- Multicast resource discovery (RFC 7252 §8) ----
+
+    // Sends a NON GET for /.well-known/core to 224.0.1.187:port (the IANA
+    // CoAP all-nodes IPv4 multicast address). Every server on the LAN that
+    // has joined the multicast group responds unicast; onDiscover fires once
+    // per responder. The slot stays active for PULSECOAP_DISCOVER_TIMEOUT_MS ms,
+    // then frees automatically. Returns false if no discover slot is free or
+    // the send fails.
+    bool discover(DiscoverHandler onDiscover, void* userContext = nullptr,
+                  uint16_t port = 5683);
+
+    // Overload for a custom multicast destination (e.g. [FF02::FD]:5683 for
+    // IPv6 or an alternate port in tests).
+    bool discover(const Endpoint& multicastEp, DiscoverHandler onDiscover,
+                  void* userContext = nullptr);
+
+    // Returns an Endpoint for the IANA IPv4 CoAP all-nodes multicast address
+    // 224.0.1.187. Callers that need IPv6 can build [FF02::FD] themselves.
+    static Endpoint allNodesEndpoint(uint16_t port = 5683);
 
     // ---- Lifetime callbacks ----
 
@@ -1234,6 +1276,51 @@ client.put(srv, "/ota/firmware",
            [](const ClientResponse& r, void*) {
                printf("OTA upload done: %d\n", static_cast<int>(r.code));
            });
+```
+
+---
+
+#### Example — Multicast resource discovery
+
+```cpp
+// Called once per responding server during the collection window.
+void onDiscover(const Endpoint& server, const uint8_t* lf, size_t len, void* ctx) {
+    char buf[256];
+    size_t n = len < sizeof(buf)-1 ? len : sizeof(buf)-1;
+    memcpy(buf, lf, n); buf[n] = '\0';
+    printf("Server %d.%d.%d.%d:%d resources: %s\n",
+           server.ip[0], server.ip[1], server.ip[2], server.ip[3],
+           server.port, buf);
+}
+
+// --- in setup ---
+// On ESP32 / Arduino the multicast group is joined at the network layer by
+// the UDP stack automatically for link-local groups; call discover() and
+// responses arrive via poll() in the normal main loop.
+client.discover(onDiscover, nullptr);      // sends to 224.0.1.187:5683
+
+// Custom destination — e.g. an alternate port used in integration tests:
+Endpoint mcast = Client::allNodesEndpoint(9999);
+client.discover(mcast, onDiscover, nullptr);
+```
+
+On POSIX/Linux hosts (unit tests, gateways) the server also needs to join the group:
+
+```cpp
+// Server side
+PosixUdpTransport serverTr;
+Server srv(serverTr);
+srv.begin(5683);
+serverTr.joinMulticastGroup("224.0.1.187");          // join on INADDR_ANY
+// srv.addResource(...)
+// ...poll loop...
+
+// Client side (test — route through loopback)
+PosixUdpTransport clientTr;
+Client client(clientTr, txPool);
+client.begin(0);
+clientTr.setMulticastOutboundInterface("127.0.0.1"); // loopback only
+client.discover(onDiscover, nullptr);
 ```
 
 ---

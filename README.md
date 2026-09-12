@@ -57,6 +57,14 @@ socket, with no changes to the protocol layer.
   `(server, path)` pair independently; `cancelObserve(server, path)` cancels
   one without affecting others on the same server.
 
+- **Multicast resource discovery** (RFC 7252 §8). `client.discover()` sends a
+  Non-Confirmable GET to `224.0.1.187:5683` (IANA CoAP all-nodes address) for
+  `/.well-known/core`. Every server on the LAN responds unicast; a
+  `DiscoverHandler` fires once per responder. Slots expire automatically after
+  `PULSECOAP_DISCOVER_TIMEOUT_MS` (default 5 s). `PosixUdpTransport` gains
+  `joinMulticastGroup()` and `setMulticastOutboundInterface()` helpers for
+  Linux/macOS gateway and test use.
+
 - **Four transport adapters — all header-only:**
   - `PulseCoAPTransportArduinoUDP.h` — wraps any Arduino `UDP&` subclass
     (`WiFiUDP`, `EthernetUDP`, ...). Works on ESP32, ESP8266, Arduino
@@ -204,19 +212,21 @@ a host `g++`/`clang++`:
 cd test && bash run_tests.sh
 ```
 
-**334 checks across 7 suites** (as of v1.0.0; DTLS is tested via Arduino examples — mbedTLS is not available on the host):
+**375 checks across 8 suites** (as of v1.2.0; DTLS is tested via Arduino examples — mbedTLS is not available on the host):
 
 | Suite | Checks | What it covers |
 |-------|--------|----------------|
 | `test_message_codec` | 46 | Full RFC 7252 encode/decode, malformed-input rejection |
 | `test_transaction_pool` | 28 | Exponential backoff, jitter, wraparound-safe timing |
-| `test_client_server_integration` | 24 | GET, PUT, Observe over in-process loopback |
+| `test_client_server_integration` | 125 | GET, PUT, Observe, deferred responses, RST handling |
 | `test_blockwise` | 29 | Block1 upload, Block2 fragmentation + reassembly |
 | `test_path_templates` | 38 | URI template matching, exact-path priority |
 | `test_multi_observe` | 35 | Multiple simultaneous observes, independent cancel |
 | `test_posix_transport` | 33* | Real OS loopback sockets, GET, Observe, IPv6 |
+| `test_multicast_discover` | 41† | Discover slot management, expiry, handler dispatch, loopback integration |
 
-*IPv6 socket tests skip gracefully when the host kernel has no IPv6.
+*IPv6 socket tests skip gracefully when the host kernel has no IPv6.  
+†Loopback-multicast integration test skips gracefully when `IP_ADD_MEMBERSHIP` is unavailable.
 
 ## API Reference
 

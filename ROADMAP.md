@@ -161,6 +161,34 @@
   raw IPv6 loopback, GET over IPv6 — last two skip gracefully when the host
   kernel has no IPv6); **334 checks total across all suites**.
 
+## Done (v1.1.0)
+
+- **CoAP multicast resource discovery** (RFC 7252 §8) — `Client::discover()`
+  sends a Non-Confirmable GET to `224.0.1.187:5683` (the IANA CoAP all-nodes
+  IPv4 multicast address) for `/.well-known/core`. Every PulseCoAP server on
+  the LAN that has joined the multicast group responds unicast; each response
+  fires a `DiscoverHandler` callback once. The discover slot stays active for
+  `PULSECOAP_DISCOVER_TIMEOUT_MS` (default 5 s) and is then freed automatically,
+  so late-arriving replies are dropped gracefully. Up to `PULSECOAP_MAX_DISCOVERS`
+  (default 2) concurrent discoveries can be active at once — each gets its own
+  token and slot.
+  - `Client::discover(onDiscover, ctx, port=5683)` — sends to the standard
+    all-nodes address; port is overridable for test environments.
+  - `Client::discover(multicastEp, onDiscover, ctx)` — overload for a custom
+    destination (e.g. `[FF02::FD]:5683` for IPv6, or an alternate port in tests).
+  - `Client::allNodesEndpoint(port=5683)` — static helper returning an
+    `Endpoint` for `224.0.1.187`.
+  - `PosixUdpTransport::joinMulticastGroup(groupAddr, ifAddr=nullptr)` —
+    calls `IP_ADD_MEMBERSHIP` so a server socket receives multicast datagrams.
+  - `PosixUdpTransport::setMulticastOutboundInterface(ifAddr)` —
+    calls `IP_MULTICAST_IF` to route multicast sends through a specific interface
+    (e.g. `"127.0.0.1"` for integration tests over loopback).
+  New test suite: `test/test_multicast_discover.cpp` — 11 test cases, 41
+  assertions: slot management, expiry, handler dispatch, isolation from
+  `pending_`, custom endpoint, and a full loopback-multicast integration test
+  (real `IP_ADD_MEMBERSHIP` + `IP_MULTICAST_IF` over `127.0.0.1`).
+  **375 checks total across 8 suites**.
+
 ## Done (v1.0.0)
 
 - **DTLS / CoAPs** (RFC 6347, RFC 7252 §9) — `PulseCoAPTransportDTLS.h`
