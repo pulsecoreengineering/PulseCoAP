@@ -166,6 +166,36 @@ public:
         return static_cast<size_t>(n);
     }
 
+    // Joins an IPv4 multicast group so the socket receives datagrams sent to
+    // that group address. Call after begin().
+    // groupAddr  — dotted-decimal multicast address, e.g. "224.0.1.187".
+    // ifAddr     — dotted-decimal local interface address, or nullptr for
+    //              INADDR_ANY (kernel picks the outbound interface).
+    // Returns false if the setsockopt() call fails (e.g. the address is not
+    // a valid multicast address, or the interface doesn't support multicast).
+    bool joinMulticastGroup(const char* groupAddr, const char* ifAddr = nullptr) {
+        if (fd_ < 0) return false;
+        struct ip_mreq mreq;
+        mreq.imr_multiaddr.s_addr = ::inet_addr(groupAddr);
+        if (mreq.imr_multiaddr.s_addr == INADDR_NONE) return false;
+        mreq.imr_interface.s_addr = ifAddr ? ::inet_addr(ifAddr) : htonl(INADDR_ANY);
+        return ::setsockopt(fd_, IPPROTO_IP, IP_ADD_MEMBERSHIP,
+                            &mreq, sizeof(mreq)) == 0;
+    }
+
+    // Binds the outbound interface for multicast sends (IP_MULTICAST_IF).
+    // Useful in tests to route multicast packets through the loopback interface
+    // ("127.0.0.1") rather than the default network interface.
+    // ifAddr — dotted-decimal local interface address.
+    bool setMulticastOutboundInterface(const char* ifAddr) {
+        if (fd_ < 0) return false;
+        struct in_addr iface;
+        iface.s_addr = ::inet_addr(ifAddr);
+        if (iface.s_addr == INADDR_NONE) return false;
+        return ::setsockopt(fd_, IPPROTO_IP, IP_MULTICAST_IF,
+                            &iface, sizeof(iface)) == 0;
+    }
+
     // Returns the actual bound port.  Useful after begin(0) to discover the
     // ephemeral port the OS chose.
     uint16_t localPort() const {

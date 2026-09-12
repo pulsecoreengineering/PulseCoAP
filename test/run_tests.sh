@@ -58,4 +58,10 @@ build_and_run test_posix_transport \
     src/PulseCoAPMessage.cpp src/PulseCoAPTransaction.cpp \
     src/PulseCoAPServer.cpp src/PulseCoAPClient.cpp
 
+build_and_run test_multicast_discover \
+    -DPULSECOAP_DISCOVER_TIMEOUT_MS=100 \
+    test/test_multicast_discover.cpp \
+    src/PulseCoAPMessage.cpp src/PulseCoAPTransaction.cpp \
+    src/PulseCoAPServer.cpp src/PulseCoAPClient.cpp
+
 echo "All PulseCoAP test suites passed."

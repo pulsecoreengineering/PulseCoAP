@@ -32,6 +32,12 @@ using ResponseHandler = void (*)(const ClientResponse& res, void* userContext);
 // Fires if a Confirmable request exhausts PULSECOAP_MAX_RETRANSMIT retries
 // with no ACK/response.
 using TimeoutHandler = void (*)(void* userContext);
+// Fires once per responding server during a discover() collection window.
+// `server` is the unicast endpoint that replied; `linkFormat`/`length` is
+// the raw CoRE Link Format body (Content-Format 40, RFC 6690).
+using DiscoverHandler = void (*)(const Endpoint& server,
+                                  const uint8_t* linkFormat, size_t length,
+                                  void* userContext);
 
 class Client {
 public:
@@ -64,6 +70,25 @@ public:
     // observes on the same server are cancelled independently.
     bool cancelObserve(const Endpoint& server, const char* path);
 
+    // Multicast resource discovery (RFC 7252 §8)
+    // -----------------------------------------------------------------------
+    // Sends a NON GET for /.well-known/core to 224.0.1.187:port (the IANA
+    // CoAP all-nodes address). Every server on the LAN that has joined the
+    // multicast group responds unicast; onDiscover fires once per responder.
+    // The slot stays active for PULSECOAP_DISCOVER_TIMEOUT_MS ms, then frees
+    // automatically. Returns false if no discover slot is free or the send
+    // fails.
+    bool discover(DiscoverHandler onDiscover, void* userContext = nullptr,
+                  uint16_t port = 5683);
+    // Overload for a custom multicast destination (e.g. [FF02::FD]:5683 for
+    // IPv6 or an alternate port in tests).
+    bool discover(const Endpoint& multicastEp, DiscoverHandler onDiscover,
+                  void* userContext = nullptr);
+
+    // Returns an Endpoint for the IANA IPv4 CoAP all-nodes multicast address
+    // 224.0.1.187. Callers that need IPv6 can build [FF02::FD] themselves.
+    static Endpoint allNodesEndpoint(uint16_t port = 5683);
+
     void setTimeoutHandler(TimeoutHandler onTimeout) { onTimeout_ = onTimeout; }
 
     // Receives any waiting response/notification and drives retransmission.
@@ -82,6 +107,15 @@ private:
         // Stored so cancelObserve() can distinguish two simultaneous observes
         // on the same server (different paths, different slots/tokens).
         char path[PULSECOAP_MAX_URI_PATH_LEN] = {};
+    };
+
+    struct DiscoverSlot {
+        bool active = false;
+        uint8_t token[PULSECOAP_MAX_TOKEN_LEN] = {};
+        uint8_t tokenLen = 0;
+        DiscoverHandler onDiscover = nullptr;
+        void* userContext = nullptr;
+        uint32_t issuedAt = 0; // nowMs when discover() was called; expiry is wraparound-safe
     };
 
     bool sendRequest(const Endpoint& server, const char* path, Code method,
@@ -108,6 +142,7 @@ private:
     Transport& transport_;
     TransactionPool& transactions_;
     PendingRequest pending_[PULSECOAP_MAX_TRANSACTIONS];
+    DiscoverSlot discovers_[PULSECOAP_MAX_DISCOVERS];
     uint16_t nextMessageId_ = 1;
     uint8_t nextTokenByte_ = 1;
     uint32_t lastNowMs_ = 0; // updated by poll(); used as the "now" for requests sent between polls
