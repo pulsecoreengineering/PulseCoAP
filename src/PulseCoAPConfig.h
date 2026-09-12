@@ -173,6 +173,50 @@
 #define PULSECOAP_MAX_PATH_PARAM_LEN 16
 #endif
 
+// ---------------------------------------------------------------------------
+// DTLS transport (RFC 6347, CoAP over DTLS per RFC 7252 §9)
+// ---------------------------------------------------------------------------
+// Off by default: requires mbedTLS, pulls in ~500 B per session, and the
+// mbedTLS handshake itself uses heap internally (ESP32 Arduino ships with
+// CONFIG_MBEDTLS_DYNAMIC_BUFFER=y). PulseCoAP's own message / routing code
+// stays zero-heap regardless; only the mbedTLS wrapper uses the heap.
+// Enable by defining PULSECOAP_ENABLE_DTLS 1 before #include <PulseCoAP.h>.
+#ifndef PULSECOAP_ENABLE_DTLS
+#define PULSECOAP_ENABLE_DTLS 0
+#endif
+
+// Maximum simultaneous DTLS sessions. Each slot holds one mbedtls_ssl_context
+// plus a small receive buffer. 4 is enough for a typical sensor hub that talks
+// to one gateway + a handful of peers. Raise if you need more.
+#ifndef PULSECOAP_DTLS_MAX_SESSIONS
+#define PULSECOAP_DTLS_MAX_SESSIONS 4
+#endif
+
+// Maximum PSK entries in the static key store. Each entry is an identity
+// string + secret key pair. 8 covers common multi-device deployments.
+#ifndef PULSECOAP_DTLS_MAX_PSK_ENTRIES
+#define PULSECOAP_DTLS_MAX_PSK_ENTRIES 8
+#endif
+
+// Maximum byte length (including NUL) of a PSK identity string.
+// "sensor-node-17" = 14 chars — 32 is comfortable.
+#ifndef PULSECOAP_DTLS_IDENTITY_MAX_LEN
+#define PULSECOAP_DTLS_IDENTITY_MAX_LEN 32
+#endif
+
+// Maximum byte length of a PSK secret (raw bytes, not NUL-terminated).
+// 16 bytes (128-bit key) is common; 32 bytes (256-bit) covers AES-256.
+#ifndef PULSECOAP_DTLS_PSK_MAX_LEN
+#define PULSECOAP_DTLS_PSK_MAX_LEN 32
+#endif
+
+// Maximum time (ms) allowed for a DTLS handshake to complete before the
+// session is abandoned and marked FAILED. 10 s accommodates slow/lossy links.
+#ifndef PULSECOAP_DTLS_HANDSHAKE_TIMEOUT_MS
+#define PULSECOAP_DTLS_HANDSHAKE_TIMEOUT_MS 10000
+#endif
+
+// ---------------------------------------------------------------------------
 // PulseTrace hook for retransmits / timeouts / dropped or duplicate
 // messages. Off by default so PulseCoAP has zero Pulse-ecosystem
 // dependencies unless you opt in.

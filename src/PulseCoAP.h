@@ -24,4 +24,7 @@
 
 #ifdef ARDUINO
 #include "PulseCoAPTransportArduinoUDP.h"
+#if PULSECOAP_ENABLE_DTLS
+#include "PulseCoAPTransportDTLS.h"
+#endif
 #endif

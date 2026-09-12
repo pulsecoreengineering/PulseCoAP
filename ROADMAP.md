@@ -171,5 +171,5 @@ Roughly in the order they'd likely get picked up:
   ecosystem, and most constrained deployments run CoAP unencrypted on a
   trusted LAN/gateway.
 - **Arduino Library Manager / PlatformIO registry publication** —
-  `library.properties` / `library.json` still have `FILL_IN_ORG`
-  placeholders for the eventual GitHub repo URL.
+  repo is live at https://github.com/pulsecoreengineering/PulseCoAP;
+  pending PR to `arduino/library-registry` and `pio pkg publish`.
