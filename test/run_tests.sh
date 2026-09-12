@@ -64,4 +64,10 @@ build_and_run test_multicast_discover \
     src/PulseCoAPMessage.cpp src/PulseCoAPTransaction.cpp \
     src/PulseCoAPServer.cpp src/PulseCoAPClient.cpp
 
+build_and_run test_gateway \
+    test/test_gateway.cpp \
+    src/PulseCoAPMessage.cpp src/PulseCoAPTransaction.cpp \
+    src/PulseCoAPServer.cpp src/PulseCoAPClient.cpp \
+    src/PulseCoAPGateway.cpp
+
 echo "All PulseCoAP test suites passed."

@@ -239,6 +239,44 @@
 #endif
 
 // ---------------------------------------------------------------------------
+// HTTP ↔ CoAP Gateway (POSIX-only, RFC 8075 style)
+// ---------------------------------------------------------------------------
+// PulseCoAPGateway bridges a web app (HTTP) to CoAP devices over UDP.
+// Enable by including PulseCoAPGateway.h; no extra build flag needed.
+// POSIX targets only (Linux, macOS, Raspberry Pi, Docker, VPS).
+
+// Maximum entries in the device registry (path-prefix → CoAP endpoint).
+#ifndef PULSECOAP_GW_MAX_DEVICES
+#define PULSECOAP_GW_MAX_DEVICES 16
+#endif
+
+// Maximum simultaneous open HTTP connections (SSE keep-alives + in-flight
+// regular requests share this pool).
+#ifndef PULSECOAP_GW_MAX_SSE_SESSIONS
+#define PULSECOAP_GW_MAX_SSE_SESSIONS 8
+#endif
+
+// Default TCP port the Gateway's built-in HTTP listener binds to.
+// 5685 is in the CoAP-related port range; change if it conflicts.
+#ifndef PULSECOAP_GW_HTTP_PORT
+#define PULSECOAP_GW_HTTP_PORT 5685
+#endif
+
+// Maximum HTTP request body the Gateway will buffer (bytes).
+// Also caps the CoAP request payload forwarded to the device.
+#ifndef PULSECOAP_GW_MAX_HTTP_BODY
+#define PULSECOAP_GW_MAX_HTTP_BODY 512
+#endif
+
+// How long (ms) to wait for a forwarded CoAP response before returning
+// 504 Gateway Timeout to the HTTP client. Longer than one full RFC 7252
+// retransmit cycle (ACK_TIMEOUT * (2^MAX_RETRANSMIT − 1) * RANDOM_FACTOR
+// ≈ 45 s at defaults) only makes sense on very lossy links.
+#ifndef PULSECOAP_GW_REQUEST_TIMEOUT_MS
+#define PULSECOAP_GW_REQUEST_TIMEOUT_MS 10000
+#endif
+
+// ---------------------------------------------------------------------------
 // PulseTrace hook for retransmits / timeouts / dropped or duplicate
 // messages. Off by default so PulseCoAP has zero Pulse-ecosystem
 // dependencies unless you opt in.
