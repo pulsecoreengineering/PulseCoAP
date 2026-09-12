@@ -284,6 +284,52 @@ bool Client::observe(const Endpoint& server, const char* path, ResponseHandler o
                         onResponse, userContext, /*markObserving=*/true);
 }
 
+Endpoint Client::allNodesEndpoint(uint16_t port) {
+    Endpoint ep;
+    // IANA CoAP all-nodes IPv4 multicast address: 224.0.1.187 (RFC 7252 §12.8)
+    ep.ip[0] = 224; ep.ip[1] = 0; ep.ip[2] = 1; ep.ip[3] = 187;
+    ep.port = port;
+    ep.isV6 = false;
+    return ep;
+}
+
+bool Client::discover(DiscoverHandler onDiscover, void* userContext, uint16_t port) {
+    return discover(allNodesEndpoint(port), onDiscover, userContext);
+}
+
+bool Client::discover(const Endpoint& multicastEp, DiscoverHandler onDiscover,
+                       void* userContext) {
+    int slot = -1;
+    for (int i = 0; i < PULSECOAP_MAX_DISCOVERS; ++i) {
+        if (!discovers_[i].active) { slot = i; break; }
+    }
+    if (slot < 0) return false;
+
+    uint8_t token = nextToken();
+
+    // Multicast requests MUST be NON (RFC 7252 §8.1).
+    Message req;
+    req.setType(MessageType::NonConfirmable);
+    req.setMessageId(nextMessageId_++);
+    req.setToken(&token, 1);
+    req.setCode(Code::Get);
+    if (!uri::addUriPathOptions(req, "/.well-known/core")) return false;
+
+    uint8_t buf[PULSECOAP_MAX_MSG_SIZE];
+    size_t len = req.encode(buf, sizeof(buf));
+    if (len == 0) return false;
+
+    if (!transport_.send(multicastEp, buf, len)) return false;
+
+    discovers_[slot].active = true;
+    discovers_[slot].token[0] = token;
+    discovers_[slot].tokenLen = 1;
+    discovers_[slot].onDiscover = onDiscover;
+    discovers_[slot].userContext = userContext;
+    discovers_[slot].issuedAt = lastNowMs_;
+    return true;
+}
+
 bool Client::cancelObserve(const Endpoint& server, const char* path) {
     for (uint8_t i = 0; i < PULSECOAP_MAX_TRANSACTIONS; ++i) {
         PendingRequest& p = pending_[i];
@@ -359,106 +405,135 @@ void Client::poll(uint32_t nowMs) {
                     size_t ackLen = ack.encode(ackBuf, sizeof(ackBuf));
                     if (ackLen > 0) transport_.send(from, ackBuf, ackLen);
                 }
-                int slot = findPendingByToken(msg.token(), msg.tokenLength());
-                if (slot >= 0) {
-                    PendingRequest& p = pending_[slot];
+
+                // Check discover slots before pending_ — discover responses
+                // arrive from servers we never sent a unicast request to, so
+                // they won't match a pending slot by server address. Checking
+                // first also prevents a shared token byte from accidentally
+                // firing a pending_ callback.
+                bool handledAsDiscover = false;
+                for (int i = 0; i < PULSECOAP_MAX_DISCOVERS; ++i) {
+                    DiscoverSlot& d = discovers_[i];
+                    if (d.active &&
+                        d.tokenLen == msg.tokenLength() &&
+                        memcmp(d.token, msg.token(), d.tokenLen) == 0) {
+                        if (d.onDiscover) {
+                            d.onDiscover(from, msg.payload(), msg.payloadLength(),
+                                         d.userContext);
+                        }
+                        handledAsDiscover = true;
+                        break;
+                    }
+                }
+                if (!handledAsDiscover) {
+                    int slot = findPendingByToken(msg.token(), msg.tokenLength());
+                    if (slot >= 0) {
+                        PendingRequest& p = pending_[slot];
 
 #if PULSECOAP_ENABLE_BLOCKWISE
-                    // --- Block1: server sent 2.31 Continue → send next block ---
-                    if (msg.code() == Code::Continue && block1up_[slot].active) {
-                        Block1UploadState& up = block1up_[slot];
-                        up.nextNum++;        // advance to the block just ack'd + 1
-                        up.waitingForContinue = false;
-                        if (!sendBlock1(slot)) {
-                            // Upload failed partway; surface as timeout
-                            up.active = false;
-                            p.active  = false;
-                            if (onTimeout_) onTimeout_(p.userContext);
+                        // --- Block1: server sent 2.31 Continue → send next block ---
+                        if (msg.code() == Code::Continue && block1up_[slot].active) {
+                            Block1UploadState& up = block1up_[slot];
+                            up.nextNum++;        // advance to the block just ack'd + 1
+                            up.waitingForContinue = false;
+                            if (!sendBlock1(slot)) {
+                                // Upload failed partway; surface as timeout
+                                up.active = false;
+                                p.active  = false;
+                                if (onTimeout_) onTimeout_(p.userContext);
+                            }
+                            // Don't fire onResponse yet; wait for the final response.
+                            goto next_poll; // skip normal response dispatch
                         }
-                        // Don't fire onResponse yet; wait for the final response.
-                        goto next_poll; // skip normal response dispatch
-                    }
 
-                    // --- Block1 upload done: final response from server ---
-                    if (block1up_[slot].active) {
-                        block1up_[slot].active = false;
-                        // Fall through to fire onResponse normally.
-                    }
+                        // --- Block1 upload done: final response from server ---
+                        if (block1up_[slot].active) {
+                            block1up_[slot].active = false;
+                            // Fall through to fire onResponse normally.
+                        }
 
-                    // --- Block2: server fragmented the response ---
-                    {
-                        const Option* b2opt = msg.findOption(
-                            static_cast<uint16_t>(OptionNumber::Block2));
-                        if (b2opt) {
-                            BlockOption b2;
-                            if (BlockOption::fromOption(*b2opt, b2)) {
-                                Block2RecvState& recv = block2recv_[slot];
-                                if (!recv.active) {
-                                    // First block — initialise the receive state.
-                                    // recv.path was already stored by sendRequest().
-                                    recv.active       = true;
-                                    recv.nextNum      = 0;
-                                    recv.szx          = b2.szx;
-                                    recv.assembledLen = 0;
-                                    recv.server       = from;
-                                    const Option* cf = msg.findOption(
-                                        static_cast<uint16_t>(OptionNumber::ContentFormat));
-                                    recv.contentFormat = cf
-                                        ? static_cast<ContentFormat>(Message::optionAsUint(*cf))
-                                        : ContentFormat::TextPlain;
-                                }
+                        // --- Block2: server fragmented the response ---
+                        {
+                            const Option* b2opt = msg.findOption(
+                                static_cast<uint16_t>(OptionNumber::Block2));
+                            if (b2opt) {
+                                BlockOption b2;
+                                if (BlockOption::fromOption(*b2opt, b2)) {
+                                    Block2RecvState& recv = block2recv_[slot];
+                                    if (!recv.active) {
+                                        // First block — initialise the receive state.
+                                        // recv.path was already stored by sendRequest().
+                                        recv.active       = true;
+                                        recv.nextNum      = 0;
+                                        recv.szx          = b2.szx;
+                                        recv.assembledLen = 0;
+                                        recv.server       = from;
+                                        const Option* cf = msg.findOption(
+                                            static_cast<uint16_t>(OptionNumber::ContentFormat));
+                                        recv.contentFormat = cf
+                                            ? static_cast<ContentFormat>(Message::optionAsUint(*cf))
+                                            : ContentFormat::TextPlain;
+                                    }
 
-                                if (b2.num == recv.nextNum) {
-                                    // Accumulate this block.
-                                    size_t avail = PULSECOAP_BLOCK2_MAX_BODY - recv.assembledLen;
-                                    size_t copyLen = msg.payloadLength() < avail
-                                                     ? msg.payloadLength() : avail;
-                                    memcpy(recv.buffer + recv.assembledLen,
-                                           msg.payload(), copyLen);
-                                    recv.assembledLen += static_cast<uint32_t>(copyLen);
-                                    recv.nextNum++;
-                                }
+                                    if (b2.num == recv.nextNum) {
+                                        // Accumulate this block.
+                                        size_t avail = PULSECOAP_BLOCK2_MAX_BODY - recv.assembledLen;
+                                        size_t copyLen = msg.payloadLength() < avail
+                                                         ? msg.payloadLength() : avail;
+                                        memcpy(recv.buffer + recv.assembledLen,
+                                               msg.payload(), copyLen);
+                                        recv.assembledLen += static_cast<uint32_t>(copyLen);
+                                        recv.nextNum++;
+                                    }
 
-                                if (b2.m) {
-                                    // More blocks to come — request the next one.
-                                    sendBlock2Request(slot);
+                                    if (b2.m) {
+                                        // More blocks to come — request the next one.
+                                        sendBlock2Request(slot);
+                                        goto next_poll;
+                                    }
+
+                                    // Final block — fire callback with full assembled payload.
+                                    if (p.onResponse) {
+                                        ClientResponse res;
+                                        res.code          = msg.code();
+                                        res.payload       = recv.buffer;
+                                        res.payloadLength = recv.assembledLen;
+                                        res.contentFormat = recv.contentFormat;
+                                        p.onResponse(res, p.userContext);
+                                    }
+                                    recv.active = false;
+                                    if (!p.observing) p.active = false;
                                     goto next_poll;
                                 }
-
-                                // Final block — fire callback with full assembled payload.
-                                if (p.onResponse) {
-                                    ClientResponse res;
-                                    res.code          = msg.code();
-                                    res.payload       = recv.buffer;
-                                    res.payloadLength = recv.assembledLen;
-                                    res.contentFormat = recv.contentFormat;
-                                    p.onResponse(res, p.userContext);
-                                }
-                                recv.active = false;
-                                if (!p.observing) p.active = false;
-                                goto next_poll;
                             }
                         }
-                    }
 #endif // PULSECOAP_ENABLE_BLOCKWISE
 
-                    if (p.onResponse) {
-                        ClientResponse res;
-                        res.code = msg.code();
-                        res.payload = msg.payload();
-                        res.payloadLength = msg.payloadLength();
-                        const Option* cf = msg.findOption(static_cast<uint16_t>(OptionNumber::ContentFormat));
-                        res.contentFormat = cf ? static_cast<ContentFormat>(Message::optionAsUint(*cf))
-                                                : ContentFormat::TextPlain;
-                        p.onResponse(res, p.userContext);
+                        if (p.onResponse) {
+                            ClientResponse res;
+                            res.code = msg.code();
+                            res.payload = msg.payload();
+                            res.payloadLength = msg.payloadLength();
+                            const Option* cf = msg.findOption(static_cast<uint16_t>(OptionNumber::ContentFormat));
+                            res.contentFormat = cf ? static_cast<ContentFormat>(Message::optionAsUint(*cf))
+                                                    : ContentFormat::TextPlain;
+                            p.onResponse(res, p.userContext);
+                        }
+                        if (!p.observing) p.active = false; // one-shot done; observe stays
                     }
-                    if (!p.observing) p.active = false; // one-shot request done; an observe stays registered
-                }
 #if PULSECOAP_ENABLE_BLOCKWISE
-                next_poll:;
+                    next_poll:;
 #endif
+                } // if (!handledAsDiscover)
             }
         }
+    }
+
+    // Expire stale discover slots (wraparound-safe subtraction).
+    for (int i = 0; i < PULSECOAP_MAX_DISCOVERS; ++i) {
+        if (discovers_[i].active &&
+            (nowMs - discovers_[i].issuedAt) >= PULSECOAP_DISCOVER_TIMEOUT_MS)
+            discovers_[i].active = false;
     }
 
     transactions_.tick(nowMs, &Client::resendTrampoline, &Client::timeoutTrampoline, this);

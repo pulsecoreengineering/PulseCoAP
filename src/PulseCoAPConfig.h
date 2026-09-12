@@ -217,6 +217,28 @@
 #endif
 
 // ---------------------------------------------------------------------------
+// Multicast resource discovery (RFC 7252 §8)
+// ---------------------------------------------------------------------------
+// Client::discover() sends a NON GET to 224.0.1.187:5683 for
+// /.well-known/core. Every PulseCoAP server on the LAN that has joined the
+// multicast group responds unicast; each response fires DiscoverHandler.
+// Slots are freed automatically after PULSECOAP_DISCOVER_TIMEOUT_MS.
+
+// Maximum simultaneously active discover() operations. Two is enough for most
+// devices — one active discovery with headroom for a second before the first
+// expires.
+#ifndef PULSECOAP_MAX_DISCOVERS
+#define PULSECOAP_MAX_DISCOVERS 2
+#endif
+
+// How long (ms) a discover slot stays active, collecting responses. RFC 7252
+// §8.2 says servers should randomise their reply within [0, ACK_TIMEOUT] to
+// avoid response floods — 5 000 ms catches even the slowest responders.
+#ifndef PULSECOAP_DISCOVER_TIMEOUT_MS
+#define PULSECOAP_DISCOVER_TIMEOUT_MS 5000
+#endif
+
+// ---------------------------------------------------------------------------
 // PulseTrace hook for retransmits / timeouts / dropped or duplicate
 // messages. Off by default so PulseCoAP has zero Pulse-ecosystem
 // dependencies unless you opt in.
