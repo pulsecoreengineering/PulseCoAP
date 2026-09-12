@@ -1,7 +1,7 @@
 # PulseCoAP API Reference
 
-**Version:** 0.9.0  
-**Standard:** RFC 7252 (CoAP), RFC 7641 (Observe), RFC 7959 (Block-wise), RFC 6690 (CoRE Link Format)
+**Version:** 1.0.0  
+**Standard:** RFC 7252 (CoAP), RFC 7641 (Observe), RFC 7959 (Block-wise), RFC 6690 (CoRE Link Format), RFC 6347 (DTLS), RFC 7252 §9 (CoAPs)
 
 ---
 
@@ -16,6 +16,7 @@
    - [ArduinoUdpTransport](#arduinoudptransport)
    - [LwIpUdpTransport](#lwipudptransport)
    - [PosixUdpTransport](#posixudptransport)
+   - [DtlsTransport](#dtlstransport)
 5. [TransactionPool](#5-transactionpool)
 6. [Server](#6-server)
    - [MethodMask](#methodmask)
@@ -177,6 +178,19 @@ Defining both is a compile error. Defining neither (the default) compiles both r
 |-------|---------|-------------|
 | `PULSECOAP_MAX_PATH_PARAMS` | `4` | Maximum number of `:param` captures per matched request. |
 | `PULSECOAP_MAX_PATH_PARAM_LEN` | `16` | Maximum byte length (including NUL) of one captured parameter name or value. |
+
+### DTLS (CoAP over DTLS, RFC 6347 / RFC 7252 §9)
+
+Requires `PULSECOAP_ENABLE_DTLS=1` and the Arduino framework with mbedTLS. Include `PulseCoAPTransportDTLS.h` after enabling this macro.
+
+| Macro | Default | Description |
+|-------|---------|-------------|
+| `PULSECOAP_ENABLE_DTLS` | `0` | Set to `1` to compile `DtlsTransport`. Requires Arduino + ESP32 mbedTLS. |
+| `PULSECOAP_DTLS_MAX_SESSIONS` | `4` | Maximum simultaneous DTLS sessions. Each slot holds one `mbedtls_ssl_context` plus a receive scratch buffer. |
+| `PULSECOAP_DTLS_MAX_PSK_ENTRIES` | `8` | Size of the static PSK key store (identity + secret pairs). |
+| `PULSECOAP_DTLS_IDENTITY_MAX_LEN` | `32` | Maximum byte length (including NUL) of a PSK identity string. |
+| `PULSECOAP_DTLS_PSK_MAX_LEN` | `32` | Maximum byte length of a PSK secret (raw bytes). |
+| `PULSECOAP_DTLS_HANDSHAKE_TIMEOUT_MS` | `10000` | Maximum time (ms) to complete a DTLS handshake before the session is abandoned. |
 
 ### Tracing
 
@@ -486,6 +500,113 @@ srv6.v6[15] = 1;   // ::1
 srv6.port   = 5683;
 client.get(srv6, "/hello", onResponse);
 ```
+
+---
+
+### DtlsTransport
+
+Header: `src/PulseCoAPTransportDTLS.h`  
+Requires: `PULSECOAP_ENABLE_DTLS=1`, Arduino framework, ESP32 mbedTLS (RFC 6347, RFC 7252 §9)
+
+Wraps a caller-owned Arduino `UDP&` object and runs a fixed-size DTLS session table on top of it. Upper layers (`Server`, `Client`) use the same three-method `Transport` interface — no changes to application code beyond swapping the transport and calling `addPsk()` before `begin()`.
+
+**Security model:** Pre-shared keys (PSK, RFC 4279). No x.509 certificates. Server-mode enables DTLS cookies for anti-amplification (RFC 6347 §4.2.1).
+
+**Memory note:** PulseCoAP's own protocol code (codec, routing, retransmission) stays zero-heap. mbedTLS itself uses ~7–12 KB of heap per session during handshake, dropping to ~3–5 KB at idle.
+
+**Arduino platform only** — the adapter is not compiled on POSIX or lwIP-only builds.
+
+```cpp
+class DtlsTransport : public Transport {
+public:
+    // server=true  — expect inbound handshakes (server role, DTLS cookie enabled).
+    // server=false — initiate outbound handshakes (client role).
+    explicit DtlsTransport(UDP& udp, bool server = false);
+    ~DtlsTransport();
+
+    // Add a PSK entry (raw key bytes). Call before begin().
+    // Returns false if the store is full or an argument is invalid.
+    bool addPsk(const char* identity, const uint8_t* key, size_t keyLen);
+
+    // Convenience overload — passphrase is used as raw key bytes.
+    bool addPsk(const char* identity, const char* passphrase);
+
+    // One-time setup: initialise mbedTLS and bind the UDP socket.
+    // Pass 5684 (CoAP-over-DTLS standard port) for servers.
+    // For clients, a non-zero server PSK must be added before calling begin().
+    bool   begin(uint16_t localPort) override;
+
+    // Encrypt and send one CoAP message to `to`.
+    // Returns false while a DTLS handshake is in progress — PulseCoAP's CON
+    // retransmit engine retries after ACK_TIMEOUT_MS, which drives handshake
+    // progress on subsequent receive() calls.
+    bool   send(const Endpoint& to, const uint8_t* data, size_t length) override;
+
+    // Non-blocking: drives in-progress handshakes and returns a decrypted
+    // CoAP datagram when one is ready. Returns 0 while handshaking.
+    size_t receive(uint8_t* buffer, size_t capacity, Endpoint& from) override;
+};
+```
+
+**Server example (ESP32):**
+```cpp
+#define PULSECOAP_ENABLE_DTLS 1
+#include <WiFiUDP.h>
+#include <PulseCoAP.h>
+#include <PulseCoAPTransportDTLS.h>
+using namespace pulsecoap;
+
+WiFiUDP       udp;
+DtlsTransport transport(udp, /*server=*/true);
+Server        server(transport);
+
+const uint8_t PSK_KEY[] = {0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,
+                            0x09,0x0A,0x0B,0x0C,0x0D,0x0E,0x0F,0x10};
+
+void setup() {
+    // ... connect WiFi ...
+    transport.addPsk("sensor-node-01", PSK_KEY, sizeof(PSK_KEY));
+    server.addResource("/temp", MethodGet, tempHandler, nullptr, true);
+    server.begin(5684);   // CoAP-over-DTLS standard port
+}
+void loop() { server.poll(millis()); }
+```
+
+**Client example (ESP32):**
+```cpp
+#define PULSECOAP_ENABLE_DTLS 1
+#include <WiFiUDP.h>
+#include <PulseCoAP.h>
+#include <PulseCoAPTransportDTLS.h>
+using namespace pulsecoap;
+
+WiFiUDP           udp;
+DtlsTransport     transport(udp, /*server=*/false);
+TransactionPool   txPool;
+Client            client(transport, txPool);
+
+const uint8_t PSK_KEY[] = {0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,
+                            0x09,0x0A,0x0B,0x0C,0x0D,0x0E,0x0F,0x10};
+Endpoint gw;   // fill ip[] and port before use
+
+void setup() {
+    // ... connect WiFi ...
+    transport.addPsk("sensor-node-01", PSK_KEY, sizeof(PSK_KEY));
+    client.begin(0);        // OS assigns ephemeral port
+    gw.ip[0]=192; gw.ip[1]=168; gw.ip[2]=1; gw.ip[3]=1;
+    gw.port = 5684;
+    client.get(gw, "/temp", [](const ClientResponse& r, void*){
+        Serial.write(r.payload, r.payloadLength); Serial.println();
+    });
+}
+void loop() { client.poll(millis()); }
+```
+
+**Non-blocking handshake flow:**
+1. First `send()` to a new peer allocates a session slot, starts the DTLS handshake, buffers the outgoing CoAP packet, and returns `false`.
+2. PulseCoAP's CON retransmit engine retries `send()` after `ACK_TIMEOUT_MS` (2 s by default), and each `receive()` call drives any incoming handshake flights.
+3. Once ESTABLISHED, the buffered packet is flushed on the next `send()` retry.
+4. If the handshake does not complete within `PULSECOAP_DTLS_HANDSHAKE_TIMEOUT_MS` (default 10 s), the session slot is reclaimed automatically.
 
 ---
 
