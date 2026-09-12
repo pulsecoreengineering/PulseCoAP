@@ -161,15 +161,36 @@
   raw IPv6 loopback, GET over IPv6 — last two skip gracefully when the host
   kernel has no IPv6); **334 checks total across all suites**.
 
+## Done (v1.0.0)
+
+- **DTLS / CoAPs** (RFC 6347, RFC 7252 §9) — `PulseCoAPTransportDTLS.h`
+  adds a header-only `DtlsTransport` adapter on top of Arduino `UDP&`.
+  Pre-shared keys (RFC 4279) — no x.509 certificates. Non-blocking
+  handshake strategy: the first `send()` to a new peer allocates a session
+  slot and starts the DTLS handshake; PulseCoAP's CON retransmit engine
+  automatically retries after `ACK_TIMEOUT_MS`, driving handshake steps on
+  each `receive()` call, until the session reaches ESTABLISHED. Server-mode
+  enables DTLS cookies (anti-amplification, RFC 6347 §4.2.1) and a
+  per-client PSK lookup callback. Handshake timeouts (`PULSECOAP_DTLS_HANDSHAKE_TIMEOUT_MS`,
+  default 10 s) reclaim the session slot automatically. PulseCoAP's own
+  message / routing code remains zero-heap; mbedTLS itself uses ~7–12 KB of
+  heap per active session during handshake, dropping to ~3–5 KB at idle.
+  Gated on `PULSECOAP_ENABLE_DTLS=1` and the Arduino framework; requires
+  the ESP32 Arduino core's built-in mbedTLS (no custom sdkconfig needed).
+  New config knobs: `PULSECOAP_DTLS_MAX_SESSIONS` (default 4),
+  `PULSECOAP_DTLS_MAX_PSK_ENTRIES` (default 8),
+  `PULSECOAP_DTLS_IDENTITY_MAX_LEN` (default 32),
+  `PULSECOAP_DTLS_PSK_MAX_LEN` (default 32),
+  `PULSECOAP_DTLS_HANDSHAKE_TIMEOUT_MS` (default 10000).
+  New examples: `examples/DtlsClient/` and `examples/DtlsServer/`.
+  **334 checks total** (host-side DTLS tests are not feasible without
+  mbedTLS on the host; the adapter is exercised by the Arduino examples).
+
 ## Not yet implemented
 
 Roughly in the order they'd likely get picked up:
 - **`PulseTrace` integration** — `PULSECOAP_ENABLE_TRACE` is reserved but
   no hook calls exist yet. (Deferred — not the next priority.)
-- **DTLS / CoAPs** — deliberately deferred past v1: pulls in mbedTLS,
-  a much heavier dependency than anything else in the no-heap Pulse
-  ecosystem, and most constrained deployments run CoAP unencrypted on a
-  trusted LAN/gateway.
 - **Arduino Library Manager / PlatformIO registry publication** —
   repo is live at https://github.com/pulsecoreengineering/PulseCoAP;
   pending PR to `arduino/library-registry` and `pio pkg publish`.

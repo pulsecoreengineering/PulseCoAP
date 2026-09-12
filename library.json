@@ -1,8 +1,8 @@
 {
   "name": "PulseCoAP",
-  "version": "0.9.0",
-  "description": "No-heap CoAP (RFC 7252) client and server for constrained IoT devices. Fixed-buffer, zero-dynamic-allocation, with Observe (RFC 7641) push notifications, block-wise transfer (RFC 7959), resource discovery (RFC 6690), URI templates, separate responses, and IPv6. Part of the Pulse embedded library ecosystem.",
-  "keywords": ["coap", "iot", "networking", "esp32", "udp", "observe", "blockwise", "rfc7252", "rfc7641", "rfc7959", "no-heap", "embedded"],
+  "version": "1.0.0",
+  "description": "No-heap CoAP (RFC 7252) client and server for constrained IoT devices. Fixed-buffer, zero-dynamic-allocation, with Observe (RFC 7641) push notifications, block-wise transfer (RFC 7959), resource discovery (RFC 6690), URI templates, separate responses, IPv6, and DTLS/CoAPs (RFC 6347) via mbedTLS PSK. Part of the Pulse embedded library ecosystem.",
+  "keywords": ["coap", "coaps", "dtls", "iot", "networking", "esp32", "udp", "observe", "blockwise", "security", "rfc7252", "rfc7641", "rfc7959", "rfc6347", "no-heap", "embedded"],
   "repository": {
     "type": "git",
     "url": "https://github.com/pulsecoreengineering/PulseCoAP.git"

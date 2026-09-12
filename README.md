@@ -57,7 +57,7 @@ socket, with no changes to the protocol layer.
   `(server, path)` pair independently; `cancelObserve(server, path)` cancels
   one without affecting others on the same server.
 
-- **Three transport adapters — all header-only:**
+- **Four transport adapters — all header-only:**
   - `PulseCoAPTransportArduinoUDP.h` — wraps any Arduino `UDP&` subclass
     (`WiFiUDP`, `EthernetUDP`, ...). Works on ESP32, ESP8266, Arduino
     Uno/Mega/Nano, Raspberry Pi Pico W.
@@ -66,6 +66,11 @@ socket, with no changes to the protocol layer.
     dual-stack IPv6 when `LWIP_IPV6=1`.
   - `PulseCoAPTransportPosix.h` — POSIX `SOCK_DGRAM` for Linux, macOS,
     Zephyr, NuttX, RIOT. Dual-stack IPv6 with automatic IPv4-mapped demapping.
+  - `PulseCoAPTransportDTLS.h` — DTLS 1.2 (RFC 6347) CoAPs adapter for
+    Arduino/ESP32, built on the ESP32 core's built-in mbedTLS. Pre-shared key
+    (PSK) authentication, non-blocking handshake, fixed session pool, and
+    server-side DTLS cookies for anti-amplification. Enable with
+    `PULSECOAP_ENABLE_DTLS=1`; no custom sdkconfig or extra libraries needed.
 
 - **IPv6.** `Endpoint` carries both `ip[4]` and `v6[16]` with an `isV6` flag.
   Existing code that uses `ep.ip[]` compiles and runs unchanged.
@@ -176,7 +181,9 @@ Every size limit and timing constant lives in
 #define PULSECOAP_MAX_RESOURCES       16  // more registered paths (default 8)
 #define PULSECOAP_ENABLE_BLOCKWISE     1  // block-wise transfer (default off)
 #define PULSECOAP_ROLE_CLIENT_ONLY       // drop server code to save flash
+#define PULSECOAP_ENABLE_DTLS          1  // DTLS/CoAPs via mbedTLS (Arduino/ESP32 only)
 #include <PulseCoAP.h>
+#include <PulseCoAPTransportDTLS.h>      // include after PulseCoAP.h when DTLS is enabled
 ```
 
 For AVR (Uno/Mega) with limited RAM, always reduce the defaults:
@@ -197,7 +204,7 @@ a host `g++`/`clang++`:
 cd test && bash run_tests.sh
 ```
 
-**334 checks across 7 suites** (as of v0.9.0):
+**334 checks across 7 suites** (as of v1.0.0; DTLS is tested via Arduino examples — mbedTLS is not available on the host):
 
 | Suite | Checks | What it covers |
 |-------|--------|----------------|
